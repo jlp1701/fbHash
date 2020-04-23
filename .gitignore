@@ -1,0 +1,3 @@
+.pytest_cache
+fbHash/__pycache__
+tests/__pycache__
