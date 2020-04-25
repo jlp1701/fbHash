@@ -1,6 +1,7 @@
 import io
 import math
 from collections import deque
+from multiprocessing import Pool
 
 
 def hash(file_path, doc_weights):
@@ -53,16 +54,20 @@ def compare(hash_1, hash_2):
 def compute_document_weights(ref_docs):
 	doc_freq_dict = {}
 	N = len(ref_docs)
+
+	p_chunks = []
+	with Pool(8) as p:
+		p_chunks = p.map(get_unique_chunks, ref_docs)
+	print(f"num chunk sets: {len(p_chunks)}")
+
 	# for each document calculate the unique set of chunks	
-	for doc in ref_docs:
-		chunk_set = get_unique_chunks(get_chunks(doc))
+	for ch_set in p_chunks:
 		# increment the hashmap entries for these chunks
-		for ch in chunk_set:
+		for ch in ch_set:
 			if not ch in doc_freq_dict:
 				doc_freq_dict[ch] = 1
 			else:
 				doc_freq_dict[ch] += 1	
-				#print(f"chunk {ch}: {doc_freq_dict[ch]}")
 
 	# calculate document weights
 	for ch in doc_freq_dict:
@@ -78,7 +83,7 @@ def get_chunks(file_path):
 
 	#print(f"file length: {len(data)}")
 	if len(data) < r_hash.k:
-		raise f"File too small. Must contain at least {r_hash.k} bytes."
+		raise Exception(f"File too small. Must contain at least {r_hash.k} bytes.")
 	
 	# compute rolling hash for complete file
 	# read in k-1 bytes to build the first hash value
@@ -93,8 +98,8 @@ def get_chunks(file_path):
 	
 	return chunk_list
 
-def get_unique_chunks(chunks):
-	return set(chunks)
+def get_unique_chunks(doc):
+	return set(get_chunks(doc))
 
 class RollingHash(object):
 	"""docstring for RollingHash"""
