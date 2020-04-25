@@ -1,0 +1,7 @@
+2020/01/27 17:02:34 [9518] building file list
+2020/01/27 17:03:00 [9518] *deleting   Private/Bilder/2017/Hochzeit_Willi_Ela/JGA_Willi/IMG_20170820_004853.jpg
+2020/01/27 17:03:00 [9518] *deleting   Private/Bilder/2017/Hochzeit_Willi_Ela/JGA_Willi/IMG_20170820_004851.jpg
+2020/01/27 17:03:00 [9518] *deleting   Private/Bilder/2017/Hochzeit_Willi_Ela/JGA_Willi/IMG_20170820_004847.jpg
+2020/01/27 17:03:00 [9518] *deleting   Private/Bilder/2017/Hochzeit_Willi_Ela/JGA_Willi/IMG-20170820-WA0018.jpg
+2020/01/27 17:03:00 [9518] *deleting   Private/Bilder/2017/Hochzeit_Willi_Ela/JGA_Willi/IMG-20170820-WA0017.jpg
+2020/01/27 17:03:00 [9518] *deleting   Private/Bilder/2017/Hochzeit_Willi_Ela/
