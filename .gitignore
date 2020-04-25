@@ -1,3 +1,5 @@
 .pytest_cache
 fbHash/__pycache__
 tests/__pycache__
+tests/files/t5-corpus
+weights.json

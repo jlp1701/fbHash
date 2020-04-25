@@ -3,13 +3,6 @@ import math
 from collections import deque
 
 
-class FbHashB(object):
-	"""docstring for FbHashB"""
-	def __init__(self):
-		super(FbHashB, self).__init__()
-		# make sure that there is precomputed list of document weights from a cluster of reference documents (NIST)
-		# maybe load list of document weights from file instead of hard code them
-
 def hash(file_path, doc_weights):
 	# compute chunk freqency of document
 	chunks = compute_chunk_freq(file_path)
@@ -69,6 +62,7 @@ def compute_document_weights(ref_docs):
 				doc_freq_dict[ch] = 1
 			else:
 				doc_freq_dict[ch] += 1	
+				#print(f"chunk {ch}: {doc_freq_dict[ch]}")
 
 	# calculate document weights
 	for ch in doc_freq_dict:
