@@ -15,12 +15,18 @@ def doc_weights_from_dir(dir_path):
 
 def doc_weights2json(weights, file_path):
 	with open(file_path, "w") as f:
-		json.dump(weights, f)
+		for ch in weights:
+			f.write(f"{ch},{weights[ch]}\n")
 
 def json2doc_weights(file_path):
 	w = {}
 	with open(file_path, "r") as f:
-		w = bigjson.load(f)
+		while True:
+			line = f.readline()
+			if not line:
+				break
+			ch,val = line.split(',')
+			w[int(ch)] = float(val)
 	return w
 
 def select_ref_files(dir_path, num):
@@ -61,12 +67,18 @@ def pick_and_gen_doc_weights(file_path, num, save_path):
 	#	print(f"{k}: {w[k]}")
 	doc_weights2json(w, save_path)
 	print("serialized")
-	w = []
-	w_loaded = json2doc_weights(save_path)
-	print(f"num loaded from file: {len(w_loaded)}")
+
+	# load and check serialized weights with generated
+	#w_loaded = json2doc_weights(save_path)
+	#print(f"num loaded from file: {len(w_loaded)}")
+	#if len(w.keys()) != len(w_loaded.keys()):
+	#	raise Exception("Number of weights is not equal.")
+	#for ch in w:
+	#	if w[ch] != w_loaded[ch]:
+	#		raise Exception("Weights are not equal.")
 
 def main():
-	pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 2, "weights.json")
+	pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 1000, "weights.json")
 
 if __name__ == '__main__':
 	main()
