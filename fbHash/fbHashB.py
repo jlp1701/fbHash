@@ -1,25 +1,56 @@
+import os 
 import io
 import math
+import sqlite3
 from collections import deque
 from multiprocessing import Pool
 
 
-def hash(file_path, doc_weights):
-	# compute chunk freqency of document
-	chunks = compute_chunk_freq(file_path)
-
-	# (normalize chunk frequencies) normalization is applying the logarithm
+def get_weights(file_path, chunks):
+	conn = sqlite3.connect(file_path)
+	c = conn.cursor()
+	w = {}
 	for ch in chunks:
-		doc_w = 1
-		if ch in doc_weights:
-			doc_w = doc_weights[ch]
-		# compute chunk weight and then score
-		chunks[ch] = (1 + math.log10(chunks[ch])) * doc_w
+		c.execute("SELECT weight FROM docweights WHERE chunk=?", [ch])
+		res = c.fetchone()
+		if res:
+			w[ch] = res[0]
+		else:
+			w[ch] = 1.0
+
+	conn.commit()
+	conn.close()
+
+	return w
+
+def hashd(data, doc_w_file):
+	# compute chunk freqency of document
+	chunks = compute_chunk_freq(data)
+
+	#print(f"num of chunks: {len(chunks)}")
+
+	#print(f"get weights ...")
+	w = get_weights(doc_w_file, chunks)
+
+	#print("normalizing chunk frequencies ...")
+	# (normalize chunk frequencies) normalization is applying the logarithm
+	i = 0
+	for ch in chunks:
+		#i += 1
+		#if i%10000 == 0:
+			#print(f"i: {i}")
+		chunks[ch] = (1 + math.log10(chunks[ch])) * w[ch]
 	return chunks
 
-def compute_chunk_freq(file_path):
+def hashf(file_path, doc_w_file):
+	with open(file_path, "rb") as f:
+		data = list(f.read())
+	return hashd(data, doc_w_file)
+	
+
+def compute_chunk_freq(data):
 	# compute rolling hash for every byte in document
-	chunk_list = get_chunks(file_path)
+	chunk_list = get_chunks(data)
 
 	# increment occurrence of chunk in hashmap
 	ch_freq_dict = {}
@@ -58,7 +89,7 @@ def compute_document_weights(ref_docs):
 	p_chunks = []
 	with Pool(8) as p:
 		p_chunks = p.map(get_unique_chunks, ref_docs)
-	print(f"num chunk sets: {len(p_chunks)}")
+	#print(f"num chunk sets: {len(p_chunks)}")
 
 	# for each document calculate the unique set of chunks	
 	for ch_set in p_chunks:
@@ -74,12 +105,34 @@ def compute_document_weights(ref_docs):
 		doc_freq_dict[ch] = math.log10(N/doc_freq_dict[ch])
 	return doc_freq_dict
 
-def get_chunks(file_path):
-	data = []
+def create_doc_db(file_path):
+	conn = sqlite3.connect(file_path)
+	c = conn.cursor()
+	c.execute("CREATE TABLE docweights (chunk INTEGER PRIMARY KEY ASC, weight REAL)")
+	conn.commit()
+	conn.close()
+
+def doc_weights2sqlite(weights, file_path):
+	# check if file exists and truncate
+	if os.path.isfile(file_path):
+		os.remove(file_path)
+
+	create_doc_db(file_path)
+	conn = sqlite3.connect(file_path)
+	c = conn.cursor()
+	i = 0
+	for ch in weights:
+		c.execute("INSERT INTO docweights VALUES (?,?)", [ch, weights[ch]])
+		i += 1
+		if i%500000 == 0:
+			conn.commit()
+
+	conn.commit()
+	conn.close()
+
+def get_chunks(data):
 	chunk_list = []
 	r_hash = RollingHash()
-	with open(file_path, "rb") as f:
-		data = list(f.read())  ## read in file in one go
 
 	#print(f"file length: {len(data)}")
 	if len(data) < r_hash.k:
@@ -99,7 +152,10 @@ def get_chunks(file_path):
 	return chunk_list
 
 def get_unique_chunks(doc):
-	return set(get_chunks(doc))
+	#data = []
+	with open(doc, "rb") as f:
+		data = list(f.read())
+	return set(get_chunks(data))
 
 class RollingHash(object):
 	"""docstring for RollingHash"""
