@@ -49,8 +49,25 @@ def fragment_detection(dir, w_path, num_files, frag_sizes, random_pos):
 		comp_res.append(fj_res)
 
 	return comp_res
-	# store comparisons
 
+def analyze_fragment_detection(results):
+	# calc match percentage and average score of each fragment size
+
+
+def common_block_detection(frag_data, test_set, frag_sizes, w_path):
+	# for all fragment sizes:
+		# generate fragment data
+		# insert into test_set data
+		# do a pairwise comparison of the two test files
+
+
+def common_block_multi(dir, runs, frag_sizes, w_path):
+	# for number of runs:
+		# select three files from pool and remove them
+		# do common block detection and save results
+	
+def analyze_common_block_detection(results):
+	# calc match percentage and average score of each fragment size
 
 
 def main():
