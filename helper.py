@@ -66,7 +66,7 @@ def pick_and_gen_doc_weights(file_path, num, save_path, exclude_type=[]):
 	print("serialized")
 
 def main():
-	pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 200, "uncompressed_weights.db", ["pdf", "ppt"])
+	pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 1000, "uncompressed_weights_1000.db", ["pdf", "ppt"])
 
 if __name__ == '__main__':
 	main()
