@@ -1,17 +1,21 @@
 import pytest
 from fbHash import fbHashB
 
+
 def read_file(file_path):
     with open(file_path, "rb") as f:
         return list(f.read())
 
+
 def test_test():
     assert True == True
+
 
 def test_document_weights():
     files = ["./tests/files/testfile_1.txt", "./tests/files/testfile_2.txt", "./tests/files/testfile_3.txt", "./tests/files/testfile_4.txt"]
     doc_w = fbHashB.compute_document_weights(files)
     assert len(doc_w) > 0
+
 
 def test_chunk_freq():
     d1 = read_file("tests/files/testfile_1.txt")
@@ -35,8 +39,9 @@ def test_chunk_freq():
     # different files
     assert len(ch_fr1.keys() & ch_fr2.keys()) == 0
 
-    ## one common chunk
+    # one common chunk
     assert len(ch_fr1.keys() & ch_fr1_1.keys()) == 1
+
 
 def test_unique_chunks():
     assert len(fbHashB.get_chunks(read_file("tests/files/testfile_1.txt"))) == 1
@@ -44,6 +49,7 @@ def test_unique_chunks():
 
     assert len(fbHashB.get_chunks(read_file("tests/files/testfile_1_2.txt"))) == 27
     assert len(fbHashB.get_unique_chunks("tests/files/testfile_1_2.txt")) == 1
+
 
 def test_comparison():
     files = ["./tests/files/testfile_1.txt", "./tests/files/testfile_1_1.txt", "./tests/files/testfile_2.txt", "./tests/files/testfile_3.txt"]

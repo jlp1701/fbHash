@@ -38,7 +38,7 @@ def select_ref_files(dir_path, num, exclude_type=[]):
     for t in types:
         f = [m for m in files if re.match(f".*\\.{t}$", m)]
         files_sorted.append(f)
-    #print(f"files_sorted: {files_sorted}")
+    # print(f"files_sorted: {files_sorted}")
     if len(files_sorted) == 0:
         raise Exception(f"No files to select from.")
 
@@ -46,7 +46,7 @@ def select_ref_files(dir_path, num, exclude_type=[]):
     picked = []
     i = 0
     while len(picked) < num:  # loop terminates because of check at beginning of func
-        flist = files_sorted[i%len(files_sorted)]
+        flist = files_sorted[i % len(files_sorted)]
         if (len(flist) > 0):
             item = random.choice(flist)
             picked.append(item)
@@ -54,19 +54,22 @@ def select_ref_files(dir_path, num, exclude_type=[]):
         i += 1
     return picked
 
+
 def pick_and_gen_doc_weights(file_path, num, save_path, exclude_type=[]):
     ref_files = select_ref_files(file_path, num, exclude_type)
     print("Generate weights from files:")
     print(ref_files)
     w = fbHashB.compute_document_weights(ref_files)
     print(f"number of weights: {len(w)}")
-    #for k in (sorted(w, key=w.get, reverse=True)[:10]):
-    #   print(f"{k}: {w[k]}")
+    # for k in (sorted(w, key=w.get, reverse=True)[:10]):
+    #    print(f"{k}: {w[k]}")
     fbHashB.doc_weights2sqlite(w, save_path)
     print("serialized")
 
+
 def main():
     pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 1000, "uncompressed_weights_1000.db", ["pdf", "ppt"])
+
 
 if __name__ == '__main__':
     main()
