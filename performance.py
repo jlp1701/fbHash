@@ -2,7 +2,9 @@ import os
 import random
 import math
 from fbHash import fbHashB
+import ssdeep
 import glob
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -127,6 +129,9 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
         # filter the set of files
         sink_set = [f for f in file_set_sorted if f_src[1] * 0.9 <= f[1] <= f_src[1] * 1.1 and f != f_src]  # select files within a 10% file size margin
         print(f"files in sink_set: {len(sink_set)}")
+        if len(sink_set) < 2:
+            print(f"Not enouth files available as sink!")
+            continue
         f_sinks = random.sample(sink_set, 2)
         print(f"f_sinks: {f_sinks}")
 
@@ -139,7 +144,7 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
             data_sinks[1] = list(f.read())
 
         # for each fragment size:
-        res = {}
+        res = {'fbHash': {}, 'ssdeep': {}}
         for frag_size in frag_sizes:
             # extract fragment from fragment source
             (data_frag, ) = get_fragments(data_src, [frag_size], random_pos=True)
@@ -157,17 +162,32 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
 
             # normalize the result with respect to the fragment size
             # sim_n =  (frag_size / (frag_size + 100.0)) * 100 / sim
-            print(f"frag_size: {frag_size}: sim: {sim}")
+            print(f"frag_size: {frag_size}: sim[fbHash]: {sim}")
 
             # save result in list
-            if frag_size not in res:
-                res[frag_size] = [sim]
+            if frag_size not in res['fbHash']:
+                res['fbHash'][frag_size] = [sim]
             else:
-                res[frag_size].append(sim)
+                res['fbHash'][frag_size].append(sim)
+
+            # ssdeep
+            hash_sink = [ssdeep.hash(bytes(data_sinks_ins[0])), ssdeep.hash(bytes(data_sinks_ins[1]))]
+            sim = ssdeep.compare(hash_sink[0], hash_sink[1])
+            print(f"frag_size: {frag_size}: sim[ssdeep]: {sim}")
+            # save result in list
+            if frag_size not in res['ssdeep']:
+                res['ssdeep'][frag_size] = [sim]
+            else:
+                res['ssdeep'][frag_size].append(sim)
+
+
 
     # generate average result
-    for frag_size in res:
-        res[frag_size] = sum(res[frag_size]) / len(res[frag_size])
+    for frag_size in res['fbHash']:
+        res['fbHash'][frag_size] = sum(res['fbHash'][frag_size]) / len(res['fbHash'][frag_size])
+
+    for frag_size in res['ssdeep']:
+        res['ssdeep'][frag_size] = sum(res['ssdeep'][frag_size]) / len(res['ssdeep'][frag_size])
 
     return res
 
@@ -175,14 +195,29 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
 def analyze_common_block_detection(results):
     # calc match percentage and average score of each fragment size
     # plot
-    frag_sizes = list(map(lambda t: (t / (t + 100.0) * 100), results))
-    avg_score = list(map(lambda t: results[t], results))
+
+    frag_sizes = list(map(lambda t: (t / (t + 100.0) * 100), results['fbHash']))
+    avg_score_fbHash = list(map(lambda t: results['fbHash'][t], results['fbHash']))
+    avg_score_ssdeep = list(map(lambda t: results['ssdeep'][t], results['ssdeep']))
+    # frag_sizes.reverse()
+    # avg_score_fbHash.reverse()
+    # avg_score_ssdeep.reverse()
     print(f"frag_sizes: {frag_sizes}")
-    print(f"avg_score: {avg_score}")
+    print(f"avg_score_fbHash: {avg_score_fbHash}")
+    print(f"avg_score_ssdeep: {avg_score_ssdeep}")
+
+    width = 0.35
+
+    x = np.arange(len(frag_sizes))
     fig, ax = plt.subplots()
-    ax.plot(frag_sizes, frag_sizes, c='g')
-    ax.plot(frag_sizes, avg_score)
+    # ax.plot(frag_sizes, frag_sizes, c='k')
+    ax.bar(x - width / 2, avg_score_fbHash, width, label='fbHash')
+    ax.bar(x + width / 2, avg_score_ssdeep, width, label='ssdeep')
     # ax.plot(frag_sizes, frag_res, c='r')
+    ax.set_ylim([0, 100])
+    ax.set_xticks(x)
+    ax.set_xticklabels(list(map(round, frag_sizes)))
+    ax.legend()
 
     ax.set(xlabel='fragment sizes', ylabel='avg score',
            title='Single-common block detection')
@@ -199,7 +234,7 @@ def main():
     # h = {k: v for k, v in sorted(fbHashB.compute_chunk_freq(d).items(), key=lambda item: item[1], reverse=True)[:100]}
     # print(f"h: {h}")
     # analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./uncompressed_weights.db", 20, [1, 5, 10, 20, 30, 50, 60, 70, 80, 95], False))
-    analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 10, "./uncompressed_weights.db"))
+    analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 48, "./weights_1000_all.db"))
 
 
 if __name__ == '__main__':
