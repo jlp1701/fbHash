@@ -35,33 +35,50 @@ def fragment_detection(dir, w_path, num_files, frag_sizes, random_pos):
 
     # read in all files
     for fp in files:
-        frag_data.append({'file_path': fp, 'data': fbHashB.hashf(fp, w_path)})
+        with open(fp, 'rb') as f:
+            data = f.read()
+            frag_data.append({'file_path': fp, 'data_fbHash': fbHashB.hashd(list(data), w_path), 'data_ssdeep': ssdeep.hash(data)})
 
+    print(f"start hashing fragments")
     # compute fragments of all files and hash them
     for fr in frag_data:
         with open(fr['file_path'], "rb") as f:
-            data = list(f.read())
-        bla = list(map(lambda d: fbHashB.hashd(d, w_path), get_fragments(data, frag_sizes, random_pos)))
-        fr['fragments'] = bla
+            data = f.read()
+            fragments = get_fragments(data, frag_sizes, random_pos)
+            fr['fragments_fbHash'] = list(map(lambda d: fbHashB.hashd(list(d), w_path), fragments))
+            fr['fragments_ssdeep'] = list(map(lambda d: ssdeep.hash(d), fragments))
 
+    print(f"start comparing...")
     comp_res = []
     # do comparisons
     for fi in frag_data:
         fj_res = []
         for fj in frag_data:
             frag_res = []
-            for frag in fj['fragments']:
-                frag_res.append(fbHashB.compare(fi['data'], frag))
+            for frag in fj['fragments_fbHash']:
+                frag_res.append(fbHashB.compare(fi['data_fbHash'], frag))
             fj_res.append(frag_res)
         comp_res.append(fj_res)
 
-    return {'results': comp_res, 'frag_sizes': frag_sizes}
+    comp_res_ssdeep = []
+    # do comparisons
+    for fi in frag_data:
+        fj_res = []
+        for fj in frag_data:
+            frag_res = []
+            for frag in fj['fragments_ssdeep']:
+                frag_res.append(ssdeep.compare(fi['data_ssdeep'], frag))
+            fj_res.append(frag_res)
+        comp_res_ssdeep.append(fj_res)
+
+    return {'results': [comp_res, comp_res_ssdeep], 'frag_sizes': frag_sizes}
 
 
 def analyze_fragment_detection(fragment_detection):
     # calc match percentage and average score of each fragment size
     frag_sizes = fragment_detection['frag_sizes']
-    res = fragment_detection['results']
+    res = fragment_detection['results'][0]
+    res_ssdeep = fragment_detection['results'][1]
 
     # print(f"res: {res}")
     # calc match percentage
@@ -81,7 +98,7 @@ def analyze_fragment_detection(fragment_detection):
                 n_gen_comp += 1
             # print(f"n_gen_comp: {n_gen_comp}; len(res): {len(res)}")
         frag_res.append(n_gen_comp / len(res) * 100.0)
-
+    print(f"frag_res: fbHash: {frag_res}")
     # calc avg score for all fragments
     avg_score = []
     for i_frag in range(len(frag_sizes)):
@@ -90,15 +107,72 @@ def analyze_fragment_detection(fragment_detection):
             score.append(res[i_f][i_f][i_frag])  # get the genuine comp scores
         avg_score.append(sum(score) / len(score))
 
-    # plot
-    print(f"frag_res: {frag_res}")
-    fig, ax = plt.subplots()
-    ax.plot(frag_sizes, frag_sizes, c='g')
-    ax.plot(frag_sizes, avg_score)
-    ax.plot(frag_sizes, frag_res, c='r')
+    print(f"ssdeep")
+    # ssdeep
+    # calc match percentage
+    # for all fragment sizes
+    frag_res_ssdeep = []
+    for fsize in range(len(frag_sizes)):
+        n_gen_comp = 0
+        for i in range(len(res_ssdeep)):
+            # get genuine comp result
+            gen_comp = res_ssdeep[i][i][fsize]
 
-    ax.set(xlabel='fragment sizes', ylabel='avg score',
-           title='Fragment detection')
+            # get impostor res and sort them descending
+            imp_comp = sorted([c[fsize] for c in res_ssdeep[i] if c != res_ssdeep[i][i]], reverse=True)
+
+            print(f"fsize: {frag_sizes[fsize]}: gen_comp: {gen_comp}; imp_comp: {imp_comp}")
+            if gen_comp > imp_comp[0]:
+                n_gen_comp += 1
+            # print(f"n_gen_comp: {n_gen_comp}; len(res): {len(res)}")
+        frag_res_ssdeep.append(n_gen_comp / len(res_ssdeep) * 100.0)
+    print(f"frag_res: ssdeep: {frag_res_ssdeep}")
+    # calc avg score for all fragments
+    avg_score_ssdeep = []
+    for i_frag in range(len(frag_sizes)):
+        score = []
+        for i_f in range(len(res_ssdeep)):
+            score.append(res_ssdeep[i_f][i_f][i_frag])  # get the genuine comp scores
+        avg_score_ssdeep.append(sum(score) / len(score))
+
+    # plot
+    # print(f"frag_res: {frag_res}")
+    # fig, ax = plt.subplots()
+    # ax.plot(frag_sizes, frag_sizes, c='gray')
+    # ax.plot(frag_sizes, avg_score, c='g')
+    # ax.plot(frag_sizes, frag_res, '--', c='g')
+
+    # ax.plot(frag_sizes, avg_score_ssdeep, c='b')
+    # ax.plot(frag_sizes, frag_res_ssdeep, '--', c='b')
+
+    # ax.set(xlabel='fragment sizes', ylabel='avg score',
+    #        title='Fragment detection')
+    # ax.grid()
+
+
+
+    width = 0.35
+
+    frag_sizes.reverse()
+    avg_score.reverse()
+    avg_score_ssdeep.reverse()
+    frag_res.reverse()
+    frag_res_ssdeep.reverse()
+
+    x = np.arange(len(frag_sizes))
+    fig, ax = plt.subplots()
+    
+    ax.plot(x, frag_res, '--', c='b')
+    ax.plot(x, frag_res_ssdeep, '--', c='darkorange')
+
+    ax.bar(x - width / 2, avg_score, width, label='fbHash')
+    ax.bar(x + width / 2, avg_score_ssdeep, width, label='ssdeep')
+    # ax.plot(frag_sizes, frag_res, c='r')
+    ax.set_ylim([0, 101])
+    ax.set_xticks(x)
+    ax.set_xticklabels(list(map(round, frag_sizes)))
+    ax.legend()
+    ax.set(xlabel='fragment sizes', ylabel='avg score', title='Fragment detection')
     ax.grid()
 
     # fig.savefig("test.png")
@@ -180,8 +254,6 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
             else:
                 res['ssdeep'][frag_size].append(sim)
 
-
-
     # generate average result
     for frag_size in res['fbHash']:
         res['fbHash'][frag_size] = sum(res['fbHash'][frag_size]) / len(res['fbHash'][frag_size])
@@ -233,8 +305,8 @@ def main():
     #    d = list(f.read())
     # h = {k: v for k, v in sorted(fbHashB.compute_chunk_freq(d).items(), key=lambda item: item[1], reverse=True)[:100]}
     # print(f"h: {h}")
-    # analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./uncompressed_weights.db", 20, [1, 5, 10, 20, 30, 50, 60, 70, 80, 95], False))
-    analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 48, "./weights_1000_all.db"))
+    analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./weights_1000_no_xls_doc_jpg.db", 20, [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], False))
+    # analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 48, "./weights_1000_no_xls_doc_jpg.db"))
 
 
 if __name__ == '__main__':
