@@ -68,7 +68,7 @@ def pick_and_gen_doc_weights(file_path, num, save_path, exclude_type=[]):
 
 
 def main():
-    # pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 1000, "weights_1000_all.db", [])
+    # pick_and_gen_doc_weights("./tests/files/t5-corpus/t5/**", 1000, "weights_1000_no_xls_doc_jpg.db", ["xls", "doc", "jpg"])
 
 
 if __name__ == '__main__':

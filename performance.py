@@ -37,7 +37,7 @@ def fragment_detection(dir, w_path, num_files, frag_sizes, random_pos):
     for fp in files:
         with open(fp, 'rb') as f:
             data = f.read()
-            frag_data.append({'file_path': fp, 'data_fbHash': fbHashB.hashd(list(data), w_path), 'data_ssdeep': ssdeep.hash(data)})
+            frag_data.append({'file_path': fp, 'data_fbHash': fbHashB.hashd(data, w_path), 'data_ssdeep': ssdeep.hash(data)})
 
     print(f"start hashing fragments")
     # compute fragments of all files and hash them
@@ -45,7 +45,7 @@ def fragment_detection(dir, w_path, num_files, frag_sizes, random_pos):
         with open(fr['file_path'], "rb") as f:
             data = f.read()
             fragments = get_fragments(data, frag_sizes, random_pos)
-            fr['fragments_fbHash'] = list(map(lambda d: fbHashB.hashd(list(d), w_path), fragments))
+            fr['fragments_fbHash'] = list(map(lambda d: fbHashB.hashd(d, w_path), fragments))
             fr['fragments_ssdeep'] = list(map(lambda d: ssdeep.hash(d), fragments))
 
     print(f"start comparing...")
@@ -210,12 +210,12 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
         print(f"f_sinks: {f_sinks}")
 
         with open(f_src[0], 'rb') as f:
-            data_src = list(f.read())
+            data_src = f.read()
         # select two files for fragment sink
         with open(f_sinks[0][0], 'rb') as f:
-            data_sinks[0] = list(f.read())
+            data_sinks[0] = f.read()
         with open(f_sinks[1][0], 'rb') as f:
-            data_sinks[1] = list(f.read())
+            data_sinks[1] = f.read()
 
         # for each fragment size:
         res = {'fbHash': {}, 'ssdeep': {}}
@@ -224,11 +224,15 @@ def common_block_detection(file_set, frag_sizes, runs, w_path):
             (data_frag, ) = get_fragments(data_src, [frag_size], random_pos=True)
 
             # insert fragment data into sinks at random positions
-            data_sinks_ins = [list(data_sinks[0]), list(data_sinks[1])]
+            data_sinks_ins = [data_sinks[0], data_sinks[1]]
             rnd_pos = random.randint(0, len(data_sinks[0]))
-            data_sinks_ins[0][rnd_pos:rnd_pos] = data_frag
+            # print(f"data_sinks[0]: {type(data_sinks[0])}")
+            # print(f"data_frag: {type(data_frag)}")
+            # data_sinks_ins[0][rnd_pos:rnd_pos] = data_frag
+            data_sinks_ins[0] = data_sinks_ins[0][0:rnd_pos] + data_frag + data_sinks_ins[0][rnd_pos:]
             rnd_pos = random.randint(0, len(data_sinks[1]))
-            data_sinks_ins[1][rnd_pos:rnd_pos] = data_frag
+            # data_sinks_ins[1][rnd_pos:rnd_pos] = data_frag
+            data_sinks_ins[1] = data_sinks_ins[1][0:rnd_pos] + data_frag + data_sinks_ins[1][rnd_pos:]
 
             # hash and compare the two sinks
             hash_sink = [fbHashB.hashd(data_sinks_ins[0], w_path), fbHashB.hashd(data_sinks_ins[1], w_path)]
@@ -305,8 +309,8 @@ def main():
     #    d = list(f.read())
     # h = {k: v for k, v in sorted(fbHashB.compute_chunk_freq(d).items(), key=lambda item: item[1], reverse=True)[:100]}
     # print(f"h: {h}")
-    analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./weights_1000_no_xls_doc_jpg.db", 20, [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], False))
-    # analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 48, "./weights_1000_no_xls_doc_jpg.db"))
+    analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./weights_1000_no_xls_doc_jpg.db", 5, [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], True))
+    # analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 5, "./weights_1000_no_xls_doc_jpg.db"))
 
 
 if __name__ == '__main__':

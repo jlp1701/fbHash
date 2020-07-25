@@ -43,7 +43,7 @@ def hashd(data, doc_w_file):
 
 def hashf(file_path, doc_w_file):
     with open(file_path, "rb") as f:
-        data = list(f.read())
+        data = f.read()
     return hashd(data, doc_w_file)
 
 
@@ -144,11 +144,11 @@ def get_chunks(data):
 
     # compute rolling hash for complete file
     # read in k-1 bytes to build the first hash value
-    for i in range(r_hash.k - 1):
-        r_hash.digest_byte(data.pop(0))
+    for b in data[:r_hash.k - 1]:
+        r_hash.digest_byte(b)
 
     # print("hash data ...")
-    for b in data:
+    for b in data[r_hash.k - 1:]:
         r_hash.digest_byte(b)
         d = r_hash.get_digest()
         chunk_list.append(d)
@@ -159,7 +159,7 @@ def get_chunks(data):
 def get_unique_chunks(doc):
     # data = []
     with open(doc, "rb") as f:
-        data = list(f.read())
+        data = f.read()
     return set(get_chunks(data))
 
 
@@ -178,16 +178,15 @@ class RollingHash(object):
         # push byte into deque
         self.items.append(byte)
 
-        # digest = digest * a + byte mod n
-        self.digest = (self.digest * self.a + byte) % self.n
+        d = (self.digest * self.a + byte)
 
         # if deque size is > k: pop value from deque and compute:
         if len(self.items) > self.k:
-            # digest = digest - value * a ** k mod n
             value = self.items.popleft()
-            # print(f"value popped: {value}")
-            self.digest = (self.digest - value * self.a ** self.k) % self.n
-        # print(f"values: {self.items}")
+            d = (d - value * self.a ** self.k)
+        if d >= self.n:
+            raise Exception(f"Computed larger number than n: {d}. window: {self.items}")
+        self.digest = d
 
     def get_digest(self):
         return self.digest
