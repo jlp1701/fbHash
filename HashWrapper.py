@@ -2,6 +2,7 @@ import os
 import subprocess
 import random
 import re
+import ssdeep
 
 
 class HashWrapper(object):
@@ -29,7 +30,7 @@ class HashWrapper(object):
     def hashd(self, data):
         # create temporary file
         suff = str(random.randint(0, 1000000))
-        file_path = f"/tmp/hashd_{suff}.txt"
+        file_path = f"/dev/shm/hashd_{suff}.txt"
         with open(file_path, "wb") as f:
             f.write(data)
         try:
@@ -41,7 +42,7 @@ class HashWrapper(object):
     def compare(self, h1, h2):
         # write both hashes to temp file
         suff = str(random.randint(0, 1000000))
-        file_path = f"/tmp/compare_{suff}.txt"
+        file_path = f"/dev/shm/compare_{suff}.txt"
         with open(file_path, "wb") as f:
             f.write(h1)
             f.write(h2)
@@ -62,15 +63,20 @@ class HashWrapper(object):
         if m is None:
             raise Exception(f"Output couldn't be parsed.")
 
-        return int(m.group(1))
+        return float(m.group(1))
 
 
-# if __name__ == '__main__':
-#     hw = HashWrapper("sdhash", [""], ["-t", "0", "-c"], r".*?\|.*?\|(\d{3})")
-#     for i in range(1):
-#         print(i)
-#         h1 = hw.hashf("a.txt")
-#         h2 = hw.hashf("b.txt")
+if __name__ == '__main__':
+    hw = HashWrapper("sdhash", [""], ["-t", "0", "-c"], r".*?\|.*?\|(\d{3})")
+    for i in range(1):
+        print(i)
+        h1 = hw.hashf("b.text")
+        h2 = hw.hashf("a.text")
+        with open("a.text", "rb") as f:
+            f1 = f.read()
+        with open("b.text", "rb") as f:
+            f2 = f.read()
 #         # print(f"h1: {h1}")
 #         # print(f"h2: {h2}")
-#         print(f"comparison: {hw.compare(h1, h2)}")
+        print(f"sdhash: {hw.compare(h1, h2)}")
+        print(f"ssdeep: {ssdeep.compare(ssdeep.hash(f1), ssdeep.hash(f2))}")

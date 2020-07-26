@@ -1,5 +1,6 @@
 import os
 import random
+import numpy as np
 import math
 from fbHash import fbHashB
 import ssdeep
@@ -7,7 +8,7 @@ import glob
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-
+import HashWrapper as hw
 
 # function for selecting random test files (implemented in helper.py)
 
@@ -24,248 +25,340 @@ def get_fragments(data, sizes, random_pos=False):
     return frag
 
 
-def fragment_detection(dir, w_path, num_files, frag_sizes, random_pos):
-    # set up pairings and comparisons to be computed by several tools
-    # for all tools:
-    # perform hashing of all files and fragments for all tools
-    # evaluate comparisons (1) match percentage (2) average similarity score
-    frag_data = []
-    files = random.sample(glob.glob(dir), num_files)
-    print(f"files picked: {files}")
-
-    # read in all files
-    for fp in files:
-        with open(fp, 'rb') as f:
-            data = f.read()
-            frag_data.append({'file_path': fp, 'data_fbHash': fbHashB.hashd(data, w_path), 'data_ssdeep': ssdeep.hash(data)})
-
-    print(f"start hashing fragments")
-    # compute fragments of all files and hash them
-    for fr in frag_data:
-        with open(fr['file_path'], "rb") as f:
-            data = f.read()
-            fragments = get_fragments(data, frag_sizes, random_pos)
-            fr['fragments_fbHash'] = list(map(lambda d: fbHashB.hashd(d, w_path), fragments))
-            fr['fragments_ssdeep'] = list(map(lambda d: ssdeep.hash(d), fragments))
-
-    print(f"start comparing...")
-    comp_res = []
-    # do comparisons
-    for fi in frag_data:
-        fj_res = []
-        for fj in frag_data:
-            frag_res = []
-            for frag in fj['fragments_fbHash']:
-                frag_res.append(fbHashB.compare(fi['data_fbHash'], frag))
-            fj_res.append(frag_res)
-        comp_res.append(fj_res)
-
-    comp_res_ssdeep = []
-    # do comparisons
-    for fi in frag_data:
-        fj_res = []
-        for fj in frag_data:
-            frag_res = []
-            for frag in fj['fragments_ssdeep']:
-                frag_res.append(ssdeep.compare(fi['data_ssdeep'], frag))
-            fj_res.append(frag_res)
-        comp_res_ssdeep.append(fj_res)
-
-    return {'results': [comp_res, comp_res_ssdeep], 'frag_sizes': frag_sizes}
+def get_fragment_indices(f_path, sizes, random_pos=False):
+    indices = []
+    random.seed()
+    for s in sizes:
+        f_len = os.path.getsize(f_path)
+        length = math.ceil(f_len * s / 100.0)
+        d = 0
+        if random_pos:
+            d = random.randint(0, f_len - length)
+        indices.append((d, d + length - 1))
+    return indices
 
 
-def analyze_fragment_detection(fragment_detection):
-    # calc match percentage and average score of each fragment size
-    frag_sizes = fragment_detection['frag_sizes']
-    res = fragment_detection['results'][0]
-    res_ssdeep = fragment_detection['results'][1]
+def fragment_detection():
+    files_path = "./tests/files/t5-corpus/t5/*.text"
+    w_path = "./weights_1000_all.db"
+    num_files = 30
+    # frag_sizes = [95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1]
+    frag_sizes = [95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1]
+    # frag_sizes = [95, 75, 55, 50, 35, 15]
+    random_pos = True
 
-    # print(f"res: {res}")
-    # calc match percentage
-    # for all fragment sizes
-    frag_res = []
-    for fsize in range(len(frag_sizes)):
-        n_gen_comp = 0
-        for i in range(len(res)):
-            # get genuine comp result
-            gen_comp = res[i][i][fsize]
+    def fbHashB_hashd(data):
+        return fbHashB.hashd(data, w_path)
 
-            # get impostor res and sort them descending
-            imp_comp = sorted([c[fsize] for c in res[i] if c != res[i][i]], reverse=True)
+    sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
 
-            print(f"fsize: {frag_sizes[fsize]}: gen_comp: {gen_comp}; imp_comp: {imp_comp}")
-            if gen_comp > imp_comp[0]:
-                n_gen_comp += 1
-            # print(f"n_gen_comp: {n_gen_comp}; len(res): {len(res)}")
-        frag_res.append(n_gen_comp / len(res) * 100.0)
-    print(f"frag_res: fbHash: {frag_res}")
-    # calc avg score for all fragments
-    avg_score = []
-    for i_frag in range(len(frag_sizes)):
-        score = []
-        for i_f in range(len(res)):
-            score.append(res[i_f][i_f][i_frag])  # get the genuine comp scores
-        avg_score.append(sum(score) / len(score))
+    schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare), ('ssdeep', ssdeep.hash, ssdeep.compare), ('sdhash', sdhash.hashd, sdhash.compare)]
 
-    print(f"ssdeep")
-    # ssdeep
-    # calc match percentage
-    # for all fragment sizes
-    frag_res_ssdeep = []
-    for fsize in range(len(frag_sizes)):
-        n_gen_comp = 0
-        for i in range(len(res_ssdeep)):
-            # get genuine comp result
-            gen_comp = res_ssdeep[i][i][fsize]
+    res = []
+    # pick files and fragments
+    picked_fi_and_fr = fdet_pick_files_and_fragments(files_path, num_files, frag_sizes, random_pos)
+    print(f"picked_fi_and_fr: {picked_fi_and_fr}")
 
-            # get impostor res and sort them descending
-            imp_comp = sorted([c[fsize] for c in res_ssdeep[i] if c != res_ssdeep[i][i]], reverse=True)
+    # read in the data
+    frag_data = fdet_read_data(picked_fi_and_fr)
+    # print(f"frag_data: {frag_data}")
 
-            print(f"fsize: {frag_sizes[fsize]}: gen_comp: {gen_comp}; imp_comp: {imp_comp}")
-            if gen_comp > imp_comp[0]:
-                n_gen_comp += 1
-            # print(f"n_gen_comp: {n_gen_comp}; len(res): {len(res)}")
-        frag_res_ssdeep.append(n_gen_comp / len(res_ssdeep) * 100.0)
-    print(f"frag_res: ssdeep: {frag_res_ssdeep}")
-    # calc avg score for all fragments
-    avg_score_ssdeep = []
-    for i_frag in range(len(frag_sizes)):
-        score = []
-        for i_f in range(len(res_ssdeep)):
-            score.append(res_ssdeep[i_f][i_f][i_frag])  # get the genuine comp scores
-        avg_score_ssdeep.append(sum(score) / len(score))
+    for (n, h, c) in schemes:
+        # compute similarity scores
+        scores = fdet_compute(frag_data, h, c)
+        with np.printoptions(suppress=True, precision=1):
+            print(f"scores: {scores}")
 
-    # plot
-    # print(f"frag_res: {frag_res}")
-    # fig, ax = plt.subplots()
-    # ax.plot(frag_sizes, frag_sizes, c='gray')
-    # ax.plot(frag_sizes, avg_score, c='g')
-    # ax.plot(frag_sizes, frag_res, '--', c='g')
+        # calc match percentage and avg similarity
+        m_perc = fdet_get_match_perc(scores)
+        print(f"m_perc: {m_perc}")
 
-    # ax.plot(frag_sizes, avg_score_ssdeep, c='b')
-    # ax.plot(frag_sizes, frag_res_ssdeep, '--', c='b')
+        avg_sim = fdet_get_avg_similarity(scores)
+        with np.printoptions(suppress=True, precision=1):
+            print(f"avg_sim: {avg_sim}")
 
-    # ax.set(xlabel='fragment sizes', ylabel='avg score',
-    #        title='Fragment detection')
-    # ax.grid()
+        res.append({'scheme': n, 'match_perc': m_perc, 'avg_score': avg_sim})
+        # print results
+    fdet_print_results(frag_sizes, res)
 
 
+def fdet_pick_files_and_fragments(files_path, num_files, frag_sizes, random_pos):
+    """Randomly picks files from the directory and choses fragments according to the
+        parameters. Returns a structure with picked file info:
+        [{'file_path': fpath, 'frag_pos': [(i_beg, i_end), (i_beg, i_end), ...]},
+         {'file_path': fpath, 'frag_pos': [(i_beg, i_end), (i_beg, i_end), ...]}, ...]
+    """
+    # retrieve a list of all files in path and randomly select from it
+    min_size = 512 * 100  # for sdhash
+    files = random.sample(list(filter(lambda f: os.path.getsize(f) > min_size, glob.glob(files_path))), num_files)
 
-    width = 0.35
+    # select fragment indices
+    picked_data = []
+    for f in files:
+        file_data = {'file_path': f, 'frag_pos': get_fragment_indices(f, frag_sizes, random_pos)}
+        picked_data.append(file_data)
+    return picked_data
 
-    frag_sizes.reverse()
-    avg_score.reverse()
-    avg_score_ssdeep.reverse()
-    frag_res.reverse()
-    frag_res_ssdeep.reverse()
+
+def fdet_read_data(fdet_param_struct):
+    """Reads the data according to the input info structure generated by
+        'fdet_pick_files_and_fragments()'
+        Returns read in data in structure:
+        [{'file': data, 'fragments': [data_f1, data_f2, ...]}, 
+         {'file': data, 'fragments': [data_f1, data_f2, ...]}, ...]
+    """
+    fragment_data = []
+    for f_param in fdet_param_struct:
+        # read in whole file:
+        with open(f_param['file_path'], "rb") as f:
+            fdata = f.read()
+        # slice fragment data
+        fragments = []
+        for (s, e) in f_param['frag_pos']:
+            fragments.append(fdata[s:e])
+        fragment_data.append({'file': fdata, 'fragments': fragments})
+    return fragment_data
+
+
+def fdet_compute(fdet_data_struct, hashd, compare):
+    """Computes the comparisons and calculates the similarites according
+        to the fragment detection algorithm.
+        Input: fragment data structure generated by fdet_read_data, hashd = anonymous hash function
+        Output: n x n x k numpy array (n = number of files, k = number of fragments for each file)
+    """
+    n = len(fdet_data_struct)
+    k = len(fdet_data_struct[0]['fragments'])
+    hash_data = []
+    for i in range(n):
+        file_hash_struct = {'file': hashd(fdet_data_struct[i]['file']), 'fragments': list(map(hashd, fdet_data_struct[i]['fragments']))}
+        hash_data.append(file_hash_struct)
+
+    scores = np.zeros((n, n, k), dtype=float)
+    for n_row in range(n):
+        for n_col in range(n):
+            for k_col in range(k):
+                scores[n_row, n_col, k_col] = compare(hash_data[n_row]['file'], hash_data[n_col]['fragments'][k_col])
+    return scores
+
+
+def fdet_get_match_perc(fdet_comp_array):
+    """Gets the comparison matrix of a fragment detection run and calculates the
+        match percentage for each fragment size
+        Input: fragment comparison array generated by fdet_compute
+        Output: list with match percentage for each fragment size
+    """
+    # for each fragment size:
+    num_files = fdet_comp_array.shape[0]
+    num_frag_sizes = fdet_comp_array.shape[2]
+    m_perc = []
+    for i in range(num_frag_sizes):
+        # get all values of fragment size
+        f_res = fdet_comp_array[:, :, i].copy()  # result is a n x n matrix
+        diag = f_res.diagonal().copy()
+        np.fill_diagonal(f_res, 0)
+        num_gen = (diag > f_res.max(axis=1)).sum()  # sum up the occurences of zeros (= correctly matched)
+        m = num_gen / num_files * 100
+        m_perc.append(m)
+    return m_perc
+
+
+def fdet_get_avg_similarity(fdet_comp_array):
+    """Gets the comparison matrix of a fragment detection run and calculates the 
+        average similarity for each fragment size
+        Input: fragment comparison array generated by fdet_compute
+        Output: list with average similarity score for each fragment size
+    """
+    num_files = fdet_comp_array.shape[0]
+    num_frag_sizes = fdet_comp_array.shape[2]
+    avg_sim = np.zeros(num_frag_sizes)
+    for i in range(num_files):
+        avg_sim += fdet_comp_array[i, i]
+    avg_sim = avg_sim / num_files
+    return avg_sim
+
+
+def fdet_print_results(frag_sizes, results):
+    """Prints the chart for fragment detection
+        Input:  frag_sizes: list of fragment sizes used
+                results: [{'scheme': name, 'match_perc': [...], 'avg_score': [...]},
+                          {'scheme': name, 'match_perc': [...], 'avg_score': [...]}, ...]
+    """
+    if len(results) > 3:
+        raise Exception("Not enough colors.")
+
+    width = 0.2
+    c = ['g', 'b', 'r']
+    o = [- width, 0, width]
 
     x = np.arange(len(frag_sizes))
     fig, ax = plt.subplots()
-    
-    ax.plot(x, frag_res, '--', c='b')
-    ax.plot(x, frag_res_ssdeep, '--', c='darkorange')
 
-    ax.bar(x - width / 2, avg_score, width, label='fbHash')
-    ax.bar(x + width / 2, avg_score_ssdeep, width, label='ssdeep')
-    # ax.plot(frag_sizes, frag_res, c='r')
+    for i in range(len(results)):
+        ax.plot(x, results[i]['match_perc'], '--', c=c[i])
+        ax.bar(x + o[i], results[i]['avg_score'], width * 4 / 5, color=c[i], label=results[i]['scheme'])
     ax.set_ylim([0, 101])
     ax.set_xticks(x)
     ax.set_xticklabels(list(map(round, frag_sizes)))
     ax.legend()
-    ax.set(xlabel='fragment sizes', ylabel='avg score', title='Fragment detection')
-    ax.grid()
+    ax.set(xlabel='fragment sizes [%]', ylabel='avg score', title='Fragment detection')
+    ax.grid(axis='y')
 
     # fig.savefig("test.png")
     plt.show()
 
+########################################################################################################
 
-def common_block_detection(file_set, frag_sizes, runs, w_path):
-    """Generates fragments and does comparisons for one specific frag size (in percent)
-    on a set of files.
+
+def common_block_detection():
+    min_size = 512 * 100  # for sdhash
+    frag_sizes = [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01]
+    # frag_sizes = [100, 66.66, 25, 11.11, 5.2, 1.01]
+    runs = 20
+    files_path = "./tests/files/t5-corpus/t5/*.text"
+    w_path = "./weights_1000_all.db"
+    file_set = list(filter(lambda f: os.path.getsize(f) > min_size, glob.glob(files_path)))
+
+    def fbHashB_hashd(data):
+        return fbHashB.hashd(data, w_path)
+
+    sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
+
+    schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare), ('ssdeep', ssdeep.hash, ssdeep.compare), ('sdhash', sdhash.hashd, sdhash.compare)]
+
+    data = cbd_pick_files_and_fragments(file_set, frag_sizes, runs)
+
+    res = []
+    for (n, h, c) in schemes:
+        scores = cbd_compute(data, h, c)
+        print(f"scores:\n{scores}")
+
+        m_perc = cbd_get_match_perc(scores)
+        avg = cbd_get_avg_similarity(scores)
+
+        # with np.printoptions(suppress=True, precision=1):
+        print(f"m_perc:\n{m_perc}")
+        print(f"avg_sim:\n{avg}")
+
+        res.append({'scheme': n, 'match_perc': m_perc, 'avg_score': avg})
+    cbd_print_results(frag_sizes, res)
+
+    pass
+
+
+def cbd_pick_files_and_fragments(file_set, frag_sizes, runs):
+    """Generate a structure containing the files with injected fragments to be compared
+        Return: [[(f1, f2), (f1, f2), ...],
+                 [(f1, f2), (f1, f2), ...], ... ]
     """
-    # get the length of all files and store them in a list of tuples [(path, size), (path, size),...]
-    file_set_sorted = []
-    for f in file_set:
-        file_set_sorted.append((f, os.path.getsize(f)))
-    # sort the list with respect to their size
-    file_set_sorted.sort(key=lambda t: t[1])  # sort by filesize
-    # print(f"sorted file set: {file_set_sorted}")
-    # for number of runs:
-    random.seed()
-    res = {}
-    for i_run in range(runs):
-        data_src = []
-        data_sinks = [[], []]
-        # select three files with similar size
+    file_set_sorted = [(f, os.path.getsize(f)) for f in file_set]
+    # print(f"file_set_sorted: {file_set_sorted}")
+    res = []
+    r = 0
+    while r < runs:
         # pick src file randomly
-        f_src = random.sample(file_set_sorted, 1)[0]
-        print(f"f_src: {f_src}")
-        # filter the set of files
+        f_src = random.choice(file_set_sorted)
+        # print(f"f_src: {f_src}")
+        # filter the set of files according to the size of src
         sink_set = [f for f in file_set_sorted if f_src[1] * 0.9 <= f[1] <= f_src[1] * 1.1 and f != f_src]  # select files within a 10% file size margin
-        print(f"files in sink_set: {len(sink_set)}")
+        # print(f"files in sink_set: {len(sink_set)}")
         if len(sink_set) < 2:
             print(f"Not enouth files available as sink!")
             continue
         f_sinks = random.sample(sink_set, 2)
-        print(f"f_sinks: {f_sinks}")
 
-        with open(f_src[0], 'rb') as f:
-            data_src = f.read()
-        # select two files for fragment sink
+        # select random fragments
+        fragments = get_fragment_indices(f_src[0], frag_sizes, random_pos=True)
+        with open(f_src[0], "rb") as f:
+            fdata = f.read()
+        data_sinks = []
         with open(f_sinks[0][0], 'rb') as f:
-            data_sinks[0] = f.read()
+            data_sinks.append(f.read())
         with open(f_sinks[1][0], 'rb') as f:
-            data_sinks[1] = f.read()
+            data_sinks.append(f.read())
 
-        # for each fragment size:
-        res = {'fbHash': {}, 'ssdeep': {}}
-        for frag_size in frag_sizes:
-            # extract fragment from fragment source
-            (data_frag, ) = get_fragments(data_src, [frag_size], random_pos=True)
-
-            # insert fragment data into sinks at random positions
-            data_sinks_ins = [data_sinks[0], data_sinks[1]]
-            rnd_pos = random.randint(0, len(data_sinks[0]))
-            # print(f"data_sinks[0]: {type(data_sinks[0])}")
-            # print(f"data_frag: {type(data_frag)}")
-            # data_sinks_ins[0][rnd_pos:rnd_pos] = data_frag
-            data_sinks_ins[0] = data_sinks_ins[0][0:rnd_pos] + data_frag + data_sinks_ins[0][rnd_pos:]
-            rnd_pos = random.randint(0, len(data_sinks[1]))
-            # data_sinks_ins[1][rnd_pos:rnd_pos] = data_frag
-            data_sinks_ins[1] = data_sinks_ins[1][0:rnd_pos] + data_frag + data_sinks_ins[1][rnd_pos:]
-
-            # hash and compare the two sinks
-            hash_sink = [fbHashB.hashd(data_sinks_ins[0], w_path), fbHashB.hashd(data_sinks_ins[1], w_path)]
-            sim = fbHashB.compare(hash_sink[0], hash_sink[1])
-
-            # normalize the result with respect to the fragment size
-            # sim_n =  (frag_size / (frag_size + 100.0)) * 100 / sim
-            print(f"frag_size: {frag_size}: sim[fbHash]: {sim}")
-
-            # save result in list
-            if frag_size not in res['fbHash']:
-                res['fbHash'][frag_size] = [sim]
-            else:
-                res['fbHash'][frag_size].append(sim)
-
-            # ssdeep
-            hash_sink = [ssdeep.hash(bytes(data_sinks_ins[0])), ssdeep.hash(bytes(data_sinks_ins[1]))]
-            sim = ssdeep.compare(hash_sink[0], hash_sink[1])
-            print(f"frag_size: {frag_size}: sim[ssdeep]: {sim}")
-            # save result in list
-            if frag_size not in res['ssdeep']:
-                res['ssdeep'][frag_size] = [sim]
-            else:
-                res['ssdeep'][frag_size].append(sim)
-
-    # generate average result
-    for frag_size in res['fbHash']:
-        res['fbHash'][frag_size] = sum(res['fbHash'][frag_size]) / len(res['fbHash'][frag_size])
-
-    for frag_size in res['ssdeep']:
-        res['ssdeep'][frag_size] = sum(res['ssdeep'][frag_size]) / len(res['ssdeep'][frag_size])
-
+        run = []
+        p0 = random.randint(0, f_sinks[0][1])
+        p1 = random.randint(0, f_sinks[1][1])
+        for (s, e) in fragments:
+            run.append((data_sinks[0][0:p0] + fdata[s:e] + data_sinks[0][p0:], data_sinks[1][0:p1] + fdata[s:e] + data_sinks[1][p1:]))
+        res.append(run)
+        r += 1
     return res
+
+
+def cbd_compute(file_pair_struct, hashd, compare):
+    """Hash and compute similarity for each pair sharing a common block
+        Return: 
+    """
+    runs = len(file_pair_struct)
+    sizes = len(file_pair_struct[0])
+    scores = np.zeros((sizes, runs, runs), dtype=float)
+    for s in range(sizes):
+        for r_row in range(runs):
+            for r_col in range(runs):
+                scores[s, r_row, r_col] = compare(hashd(file_pair_struct[r_row][s][0]), hashd(file_pair_struct[r_col][s][1]))
+    return scores
+
+
+def cbd_get_match_perc(scores):
+    """Compute the match percentage for each file size
+        Return: [s0_match_perc, ... , sn_match_perc]
+    """
+    # for each fragment size:
+    num_frag_sizes = scores.shape[0]
+    num_runs = scores.shape[1]
+    m_perc = []
+    for i in range(num_frag_sizes):
+        # get all values of fragment size
+        f_res = scores[i].copy()
+        diag = f_res.diagonal().copy()
+        np.fill_diagonal(f_res, 0)
+        num_gen = (diag > f_res.max(axis=1)).sum()  # sum up the occurences of zeros (= correctly matched)
+        m = num_gen / num_runs * 100
+        m_perc.append(m)
+    return m_perc
+
+
+def cbd_get_avg_similarity(scores):
+    """
+    """
+    sizes = scores.shape[0]
+    runs = scores.shape[1]
+    avg = []
+    for s in range(sizes):
+        avg.append(scores[s].diagonal().sum() / runs)
+    return avg
+
+
+def cbd_print_results(frag_sizes, results):
+    """Prints the chart for common block detection
+        Input:  frag_sizes: list of fragment sizes used
+                results: [{'scheme': name, 'match_perc': [...], 'avg_score': [...]},
+                          {'scheme': name, 'match_perc': [...], 'avg_score': [...]}, ...]
+    """
+    if len(results) > 3:
+        raise Exception("Not enough colors.")
+
+    width = 0.2
+    c = ['g', 'b', 'r']
+    o = [- width, 0, width]
+
+    frag_sizes = list(map(lambda t: (t / (t + 100.0) * 100), frag_sizes))
+    x = np.arange(len(frag_sizes))
+    fig, ax = plt.subplots()
+
+    for i in range(len(results)):
+        ax.plot(x, results[i]['match_perc'], '--', c=c[i])
+        ax.bar(x + o[i], results[i]['avg_score'], width * 4 / 5, color=c[i], label=results[i]['scheme'])
+    ax.set_ylim([0, 101])
+    ax.set_xticks(x)
+    ax.set_xticklabels(list(map(round, frag_sizes)))
+    ax.legend()
+    ax.set(xlabel='fragment sizes [%]', ylabel='avg score', title='Single-common Block Detection')
+    ax.grid(axis='y')
+
+    # fig.savefig("test.png")
+    plt.show()
 
 
 def analyze_common_block_detection(results):
@@ -309,7 +402,9 @@ def main():
     #    d = list(f.read())
     # h = {k: v for k, v in sorted(fbHashB.compute_chunk_freq(d).items(), key=lambda item: item[1], reverse=True)[:100]}
     # print(f"h: {h}")
-    analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./weights_1000_no_xls_doc_jpg.db", 5, [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], True))
+    # analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./weights_1000_no_xls_doc_jpg.db", 5, [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], True))
+    # fragment_detection()
+    common_block_detection()
     # analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 5, "./weights_1000_no_xls_doc_jpg.db"))
 
 
