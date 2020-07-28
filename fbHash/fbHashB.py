@@ -10,41 +10,55 @@ def get_weights(file_path, chunks):
     conn = sqlite3.connect(file_path)
     c = conn.cursor()
     w = {}
-    for ch in chunks:
-        c.execute("SELECT weight FROM docweights WHERE chunk=?", [ch])
-        res = c.fetchone()
-        if res:
-            w[ch] = res[0]
-        else:
-            w[ch] = 1.0
+    s = []
+    n = 30
+    keys = list(chunks.keys())
+    for i in range(0, len(keys), n):
+        li = keys[i:i + n]
+        c.execute(f"SELECT chunk, weight FROM docweights WHERE chunk IN ({', '.join(['?' for _ in li])})", li)
+        res = c.fetchall()
+        # print(f"res: {res}")
+        for (k, v) in res:
+            w[k] = v
 
     conn.commit()
     conn.close()
     return w
 
 
-def hashd(data, doc_w_file):
+def hashd_weight_file(data, doc_w_file):
     # compute chunk freqency of document
     chunks = compute_chunk_freq(data)
-    # print(f"num of chunks: {len(chunks)}")
-    # print(f"get weights ...")
-    w = get_weights(doc_w_file, chunks)
+    weights = get_weights(doc_w_file, chunks)
 
-    # print("normalizing chunk frequencies ...")
     # (normalize chunk frequencies) normalization is applying the logarithm
-    i = 0
     for ch in chunks:
-        # i += 1
-        # if i%10000 == 0:
-            # print(f"i: {i}")
-        chunks[ch] = (1 + math.log10(chunks[ch])) * w[ch]
+        if ch not in weights:
+            w = 1.0
+        else:
+            w = weights[ch]
+        chunks[ch] = (1 + math.log10(chunks[ch])) * w
+    return chunks
+
+
+def hashd_weights(data, weights):
+    # compute chunk freqency of document
+    chunks = compute_chunk_freq(data)
+
+    # (normalize chunk frequencies) normalization is applying the logarithm
+    for ch in chunks:
+        if ch not in weights:
+            w = 1.0
+        else:
+            w = weights[ch]
+        chunks[ch] = (1 + math.log10(chunks[ch])) * w
     return chunks
 
 
 def hashf(file_path, doc_w_file):
     with open(file_path, "rb") as f:
         data = f.read()
-    return hashd(data, doc_w_file)
+    return hashd_weight_file(data, doc_w_file)
 
 
 def compute_chunk_freq(data):
