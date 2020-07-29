@@ -1,3 +1,5 @@
+import subprocess
+import re
 import os
 import json
 import random
@@ -56,8 +58,77 @@ sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})"
 schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare), ('ssdeep', ssdeep.hash, ssdeep.compare), ('sdhash', sdhash.hashd, sdhash.compare)]
 files_path = "./tests/files/t5-corpus/t5/*.text"
 
+
+def mrshv2_hc(d1, d2):
+    # create temporary files
+    path_bin = "/home/burndi/mrsh_v2.0/mrsh_v2.0/mrsh"
+    args_hash_and_compare = ["-f", "-t", "0", "-c"]
+    compare_regex = r".*? \| .*? \| (\d{3}) "
+    file_path = [f"/dev/shm/hashd_{str(random.randint(0, 1000000))}.txt" for _ in range(2)]
+    with open(file_path[0], "wb") as f:
+        f.write(d1)
+    with open(file_path[1], "wb") as f:
+        f.write(d2)
+    try:
+        cmd = [f"{path_bin}"]
+        cmd.extend(args_hash_and_compare)
+        cmd.append(file_path[0])
+        cmd.append(file_path[1])
+        # print(f"cmd: {cmd}")
+        proc_ret = subprocess.run(cmd, stdout=subprocess.PIPE)
+        # print(f"stdout: {proc_ret.stdout}")
+        if proc_ret.returncode != 0:
+            raise Exception(f"Hash and compare program returned error code: {proc_ret.returncode}")
+        if proc_ret.stdout == b'':
+            raise Exception(f"No output for input files: {file_path}")
+    finally:
+        os.remove(file_path[0])
+        os.remove(file_path[1])
+    m = re.match(compare_regex, str(proc_ret.stdout))
+    if m is None:
+        raise Exception(f"Output couldn't be parsed: '{proc_ret.stdout}'")
+
+    return float(m.group(1))
+
+
+def fd_kfold(frag_sizes):
+    num_folds = 5
+    res = []
+    # files_path = "./tests/files/t5-corpus/t5/*.text"
+    files_path = "/dev/shm/t5-corpus/t5/*.text"
+    min_size = 512 * 100  # for sdhash
+    files = list(filter(lambda f: os.path.getsize(f) > min_size, glob.glob(files_path)))
+    random.shuffle(files)
+    print(f"num file pool: {len(files)}")
+    # reduce number of files for testing
+    # files = files[0:20]
+
+    kf = gen_kfold_files(files, num_folds)
+    for train, test in kf:
+        # compute doc weights
+        print("generate doc weights")
+        docw = fbHashB.compute_document_weights(train)
+
+        def fbHashB_hashd(data):
+            return fbHashB.hashd_weights(data, docw)
+        # sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
+        schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare, None), ('ssdeep', ssdeep.hash, ssdeep.compare, None), ('mrshv2', None, None, mrshv2_hc)]
+
+        # compute fragment detection
+        print("compute fragment detection")
+        r = fragment_detection(schemes, test, frag_sizes)
+        res.append(r)
+        print(f"res:\n{res}")
+
+    # compose results
+    result = np.array(res)
+    result = np.average(result, axis=0)
+    return result
+
+
 def fragment_detection(schemes, files, frag_sizes):
-    num_files = len(files)
+    num_files = min(len(files), 20)
+    print(f"number files: {num_files}")
     # frag_sizes = [95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1]
     # frag_sizes = [95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1]
     # frag_sizes = [95, 75, 55, 50, 35, 15]
@@ -68,14 +139,17 @@ def fragment_detection(schemes, files, frag_sizes):
     #print(f"picked_fi_and_fr: {picked_fi_and_fr}")
 
     # read in the data
-    frag_data = fdet_read_data(picked_fi_and_fr)
-    # print(f"frag_data: {frag_data}")
 
     shape = (0, 2, len(frag_sizes))
     res = np.zeros(shape, dtype=float)
-    for (n, h, c) in schemes:
+    for (n, h, c, hc) in schemes:
+        print(f"scheme: {n}")
         # compute similarity scores
-        scores = fdet_compute(frag_data, h, c)
+        if h and c:
+            frag_data = fdet_read_and_hash_data(picked_fi_and_fr, h)
+            scores = fdet_compute(frag_data, c)
+        else:
+            scores = fdet_read_hash_compute(picked_fi_and_fr, hc)
         #with np.printoptions(suppress=True, precision=1):
         #    print(f"scores: {scores}")
 
@@ -91,39 +165,6 @@ def fragment_detection(schemes, files, frag_sizes):
         res = np.append(res, [[m_perc, avg_sim]], axis=0)
         # print(f"res:\n{res}")
     return res
-
-
-def fd_kfold(frag_sizes):
-    num_folds = 5
-    res = []
-    files_path = "./tests/files/t5-corpus/t5/*.text"
-    min_size = 512 * 100  # for sdhash
-    files = list(filter(lambda f: os.path.getsize(f) > min_size, glob.glob(files_path)))
-    random.shuffle(files)
-    # reduce number of files for testing
-    # files = files[0:10]
-
-    kf = gen_kfold_files(files, num_folds)
-    for train, test in kf:
-        # compute doc weights
-        print("generate doc weights")
-        docw = fbHashB.compute_document_weights(train)
-
-        def fbHashB_hashd(data):
-            return fbHashB.hashd_weights(data, docw)
-        sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
-        schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare), ('ssdeep', ssdeep.hash, ssdeep.compare), ('sdhash', sdhash.hashd, sdhash.compare)]
-
-        # compute fragment detection
-        print("compute fragment detection")
-        r = fragment_detection(schemes, test, frag_sizes)
-        res.append(r)
-        print(f"res:\n{res}")
-
-    # compose results
-    result = np.array(res)
-    result = np.average(result, axis=0)
-    return result
 
 
 def fdet_pick_files_and_fragments(input_files, num_files, frag_sizes, random_pos):
@@ -142,7 +183,7 @@ def fdet_pick_files_and_fragments(input_files, num_files, frag_sizes, random_pos
     return picked_data
 
 
-def fdet_read_data(fdet_param_struct):
+def fdet_read_and_hash_data(fdet_param_struct, hashd):
     """Reads the data according to the input info structure generated by
         'fdet_pick_files_and_fragments()'
         Returns read in data in structure:
@@ -157,12 +198,12 @@ def fdet_read_data(fdet_param_struct):
         # slice fragment data
         fragments = []
         for (s, e) in f_param['frag_pos']:
-            fragments.append(fdata[s:e])
-        fragment_data.append({'file': fdata, 'fragments': fragments})
+            fragments.append(hashd(fdata[s:e]))
+        fragment_data.append({'file': hashd(fdata), 'fragments': fragments})
     return fragment_data
 
 
-def fdet_compute(fdet_data_struct, hashd, compare):
+def fdet_compute(fdet_data_struct, compare):
     """Computes the comparisons and calculates the similarites according
         to the fragment detection algorithm.
         Input: fragment data structure generated by fdet_read_data, hashd = anonymous hash function
@@ -170,18 +211,40 @@ def fdet_compute(fdet_data_struct, hashd, compare):
     """
     n = len(fdet_data_struct)
     k = len(fdet_data_struct[0]['fragments'])
-    hash_data = []
-    for i in range(n):
-        file_hash_struct = {'file': hashd(fdet_data_struct[i]['file']), 'fragments': list(map(hashd, fdet_data_struct[i]['fragments']))}
-        hash_data.append(file_hash_struct)
 
     scores = np.zeros((n, n, k), dtype=float)
     for n_row in range(n):
         for n_col in range(n):
             for k_col in range(k):
-                scores[n_row, n_col, k_col] = compare(hash_data[n_row]['file'], hash_data[n_col]['fragments'][k_col])
+                scores[n_row, n_col, k_col] = compare(fdet_data_struct[n_row]['file'], fdet_data_struct[n_col]['fragments'][k_col])
     return scores
 
+
+
+def fdet_read_hash_compute(fdet_param_struct, hc):
+    fragment_data = []
+    for f_param in fdet_param_struct:
+        # read in whole file:
+        with open(f_param['file_path'], "rb") as f:
+            fdata = f.read()
+        # slice fragment data
+        fragments = []
+        for (s, e) in f_param['frag_pos']:
+            fragments.append(fdata[s:e])
+        fragment_data.append({'file': fdata, 'fragments': fragments})
+
+    fdet_data_struct = fragment_data
+
+    n = len(fdet_data_struct)
+    k = len(fdet_data_struct[0]['fragments'])
+
+    scores = np.zeros((n, n, k), dtype=float)
+    for n_row in range(n):
+        for n_col in range(n):
+            for k_col in range(k):
+
+                scores[n_row, n_col, k_col] = hc(fdet_data_struct[n_row]['file'], fdet_data_struct[n_col]['fragments'][k_col])
+    return scores
 
 def fdet_get_match_perc(fdet_comp_array):
     """Gets the comparison matrix of a fragment detection run and calculates the
@@ -219,7 +282,7 @@ def fdet_get_avg_similarity(fdet_comp_array):
     return avg_sim
 
 
-def fdet_print_results(frag_sizes, schemes, results):
+def print_results(title, frag_sizes, schemes, results):
     """Prints the chart for fragment detection
         Input:  frag_sizes: list of fragment sizes used
                 results: [{'scheme': name, 'match_perc': [...], 'avg_score': [...]},
@@ -242,7 +305,7 @@ def fdet_print_results(frag_sizes, schemes, results):
     ax.set_xticks(x)
     ax.set_xticklabels(list(map(round, frag_sizes)))
     ax.legend()
-    ax.set(xlabel='fragment sizes [%]', ylabel='avg score', title='Fragment detection')
+    ax.set(xlabel='fragment sizes [%]', ylabel='avg score', title=title)
     ax.grid(axis='y')
 
     # fig.savefig("test.png")
@@ -251,28 +314,48 @@ def fdet_print_results(frag_sizes, schemes, results):
 ########################################################################################################
 
 
-def common_block_detection():
+def cbd_kfold(frag_sizes):
+    num_folds = 5
+    res = []
+    # files_path = "./tests/files/t5-corpus/t5/*.text"
+    files_path = "/dev/shm/t5-corpus/t5/*.text"
     min_size = 512 * 100  # for sdhash
-    max_size = 2**20
-    # frag_sizes = [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01]
-    frag_sizes = [100, 66.66, 25, 11.11, 5.2, 1.01]
-    runs = 3
-    files_path = "./tests/files/t5-corpus/t5/*.text"
-    # w_path = "./weights_1000_all.db"
-    w_path = "/dev/shm/weights_1000_all.db"
-    file_set = list(filter(lambda f: os.path.getsize(f) > min_size and os.path.getsize(f) < max_size, glob.glob(files_path)))
+    files = list(filter(lambda f: os.path.getsize(f) > min_size, glob.glob(files_path)))
+    random.shuffle(files)
+    # reduce number of files for testing
+    # files = files[0:30]
 
-    def fbHashB_hashd(data):
-        return fbHashB.hashd_weight_file(data, w_path)
+    kf = gen_kfold_files(files, num_folds)
+    for train, test in kf:
+        # compute doc weights
+        print("generate doc weights")
+        docw = fbHashB.compute_document_weights(train)
 
-    sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
+        def fbHashB_hashd(data):
+            return fbHashB.hashd_weights(data, docw)
+        sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
+        schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare), ('ssdeep', ssdeep.hash, ssdeep.compare), ('sdhash', sdhash.hashd, sdhash.compare)]
 
-    schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare), ('ssdeep', ssdeep.hash, ssdeep.compare), ('sdhash', sdhash.hashd, sdhash.compare)]
+        # compute fragment detection
+        print("compute common block detection")
+        r = common_block_detection(schemes, test, frag_sizes)
+        res.append(r)
+        print(f"res:\n{res}")
 
-    data = cbd_pick_files_and_fragments_random(file_set, frag_sizes, runs)
+    # compose results
+    result = np.array(res)
+    result = np.average(result, axis=0)
+    return result
+
+
+def common_block_detection(schemes, files, frag_sizes):
+    runs = min(len(files), 30)
+
+    data = cbd_pick_files_and_fragments_random(files, frag_sizes, runs)
     print(f"files picked")
 
-    res = []
+    shape = (0, 2, len(frag_sizes))
+    res = np.zeros(shape, dtype=float)
     for (n, h, c) in schemes:
         scores = cbd_compute(data, h, c)
         print(f"scores:\n{scores}")
@@ -284,10 +367,8 @@ def common_block_detection():
         print(f"m_perc:\n{m_perc}")
         print(f"avg_sim:\n{avg}")
 
-        res.append({'scheme': n, 'match_perc': m_perc, 'avg_score': avg})
-    cbd_print_results(frag_sizes, res)
-
-    pass
+        res = np.append(res, [[m_perc, avg]], axis=0)
+    return res
 
 
 def cbd_pick_files_and_fragments(file_set, frag_sizes, runs):
@@ -417,7 +498,7 @@ def cbd_get_avg_similarity(scores):
     return avg
 
 
-def cbd_print_results(frag_sizes, results):
+def cbd_print_results(title, frag_sizes, results):
     """Prints the chart for common block detection
         Input:  frag_sizes: list of fragment sizes used
                 results: [{'scheme': name, 'match_perc': [...], 'avg_score': [...]},
@@ -449,25 +530,30 @@ def cbd_print_results(frag_sizes, results):
 
 
 def main():
-    # with open("./tests/files/t5-corpus/t5/004958.text", "rb") as f:
-    #    d = list(f.read())
-    # h = {k: v for k, v in sorted(fbHashB.compute_chunk_freq(d).items(), key=lambda item: item[1], reverse=True)[:100]}
-    # print(f"h: {h}")
-    # analyze_fragment_detection(fragment_detection("./tests/files/t5-corpus/t5/*.text", "./weights_1000_no_xls_doc_jpg.db", 5, [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], True))
-    # fragment_detection()
-    # common_block_detection()
-    schemes = ["fbHashB", "ssdeep", "sdhash"]
+    schemes_names = ["fbHashB", "ssdeep", "sdhash"]
     frag_sizes = [95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1]
     fd_res = fd_kfold(frag_sizes)
     print(f"fd_res: {fd_res}")
     s = {}
-    s['schemes'] = schemes
+    s['schemes'] = schemes_names
     s['frag_sizes'] = frag_sizes
     s['fd_results'] = fd_res.tolist()
     with open("fd_res.json", "w") as f:
         json.dump(s, f)
-    fdet_print_results(frag_sizes, schemes, fd_res)
-    # analyze_common_block_detection(common_block_detection(glob.glob("./tests/files/t5-corpus/t5/*.text"), [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01], 5, "./weights_1000_no_xls_doc_jpg.db"))
+    # print_results("Fragment Detection (5-fold CV)", frag_sizes, schemes_names, fd_res)
+    
+
+    schemes_names = ["fbHashB", "ssdeep", "sdhash"]
+    frag_sizes = [100, 66.66, 42.86, 25, 11.11, 5.2, 4.1, 3.09, 2.04, 1.01]
+    cbd_res = cbd_kfold(frag_sizes)
+    print(f"cbd_res: {cbd_res}")
+    s = {}
+    s['schemes'] = schemes_names
+    s['frag_sizes'] = frag_sizes
+    s['cbd_results'] = cbd_res.tolist()
+    with open("cbd_res.json", "w") as f:
+        json.dump(s, f)
+    # print_results("Single-common block detection (5-fold CV)", frag_sizes, schemes_names, cbd_res)
 
 
 if __name__ == '__main__':
