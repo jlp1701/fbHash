@@ -111,8 +111,8 @@ def fd_kfold(frag_sizes):
 
         def fbHashB_hashd(data):
             return fbHashB.hashd_weights(data, docw)
-        # sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
-        schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare, None), ('ssdeep', ssdeep.hash, ssdeep.compare, None), ('mrshv2', None, None, mrshv2_hc)]
+        sdhash = hw.HashWrapper("sdhash", [""], ["-t", "-1", "-c"], r".*?\|.*?\|(\d{3})")
+        schemes = [('fbHashB', fbHashB_hashd, fbHashB.compare, None), ('ssdeep', ssdeep.hash, ssdeep.compare, None), ('sdhash', sdhash.hashd, sdhash.compare, None)]
 
         # compute fragment detection
         print("compute fragment detection")
@@ -349,7 +349,7 @@ def cbd_kfold(frag_sizes):
 
 
 def common_block_detection(schemes, files, frag_sizes):
-    runs = min(len(files), 30)
+    runs = min(len(files), 10)
 
     data = cbd_pick_files_and_fragments_random(files, frag_sizes, runs)
     print(f"files picked")
